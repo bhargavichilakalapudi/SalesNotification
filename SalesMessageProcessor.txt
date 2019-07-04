@@ -1,0 +1,560 @@
+package com.jpm.mp.sales;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileReader;
+import java.io.IOException;
+import java.net.URL;
+
+/**
+ * Receives the sales notifications and process it and displays it
+ *
+ */
+public class SalesMsgProcessor {
+
+	public boolean processNotifications(String fileName) throws IOException{
+		Sales sales= new Sales();
+		boolean validation = false;
+		BufferedReader br = readInputFile(fileName);
+		String line;
+		while ((line = br.readLine()) != null) {
+			validation = sales.processInputSalesMessage(line);
+
+			sales.displaySaleData.buildReport();
+		}
+		return validation;
+
+	}
+
+	private BufferedReader readInputFile(String fileName) throws FileNotFoundException {
+		URL resource = ClassLoader.getSystemResource(fileName);
+		File file = new File(resource.getFile());
+		FileReader reader = new FileReader(file);
+		BufferedReader br = new BufferedReader(reader);
+		return br;
+	}
+}
+
+
+package com.jpm.mp.sales;
+
+public class Sales {
+
+	DisplaySaleData displaySaleData;
+	private AdjustPrice adjustPrice;
+	private Product product;
+	public Sales() {
+		displaySaleData	= new DisplaySaleData();	}
+
+	public boolean processInputSalesMessage(String line) {
+
+		LineParser lineParser = new LineParser(line);
+
+		String productType = lineParser.getProductType();
+
+		if (productType.isEmpty()) {
+			return false;
+		}
+
+		this.product = displaySaleData.getProduct(productType);
+
+		this.adjustPrice = new AdjustPrice(product);
+
+		this.product.setProductQuantity(lineParser.getProductQuantity());
+		this.product.setTotalQuantity(lineParser.getProductQuantity());
+		if(lineParser.getAdjProductPrice() != 0.0){
+			this.product.setAdjustedPrice(lineParser.getAdjProductPrice());
+		}else
+		this.product.setProductPrice(lineParser.getProductPrice());
+		this.product.setAdjustmentOperator(lineParser.getOperatorType());
+
+		setProductTotalPrice();
+
+		displaySaleData.setNormalReports(line);
+
+		displaySaleData.updateProduct(product);
+
+		return true;
+	}
+
+	private void setProductTotalPrice() {
+		double adjustedPrice;
+		double productValue;
+
+		if (!product.getAdjustmentOperator().isEmpty()) {
+			adjustedPrice = adjustPrice.getAdjustedPrice();
+			displaySaleData.setAdjustmentReports(adjustPrice.prepFinalReport());
+			product.setTotalPrice(adjustedPrice);
+		} else {
+			productValue = product.calculatePrice(product.getProductQuantity(), product.getProductPrice());
+			product.appendTotalPrice(productValue);
+		}
+	}
+}
+
+
+package com.jpm.mp.sales;
+
+/**
+ * Main product class which stores all the product related information
+ *
+ */
+public class Product {
+
+	private double productPrice;
+
+	private int productQuantity;
+
+	private String adjustmentOperator;
+
+	private String productType;
+
+	private int totalQuantity;
+
+	private double totalPrice;
+	
+	private double adjustedPrice;
+
+	public Product(String type) {
+		this.totalPrice = 0.0;
+		this.totalQuantity = 0;
+		this.productType = type;
+		this.adjustedPrice = 0.0;
+		this.adjustmentOperator = null;
+	}
+
+	public double calculatePrice(int productQuantity, double productPrice) {
+		return productQuantity * productPrice;
+	}
+
+	public void setTotalPrice(double totalPrice) {
+		this.totalPrice = totalPrice;
+	}
+
+	public void appendTotalPrice(double productPrice) {
+		this.totalPrice += productPrice;
+	}
+
+	public void setTotalQuantity(int quantity) {
+		this.totalQuantity += quantity;
+	}
+
+	public int getTotalQuantity() {
+		return this.totalQuantity;
+	}
+
+	public double getTotalPrice() {
+		return this.totalPrice;
+	}
+
+	public String getProductType() {
+		return this.productType;
+	}
+
+	public void setProductType(String type) {
+		this.productType = type;
+	}
+
+	public double getProductPrice() {
+		return productPrice;
+	}
+
+	public void setProductPrice(double productPrice) {
+		this.productPrice = productPrice;
+	}
+
+	public int getProductQuantity() {
+		return productQuantity;
+	}
+
+	public void setProductQuantity(int productQuantity) {
+		this.productQuantity = productQuantity;
+	}
+
+	public String getAdjustmentOperator() {
+		return adjustmentOperator;
+	}
+
+	public void setAdjustmentOperator(String adjustmentOperator) {
+		this.adjustmentOperator = adjustmentOperator;
+	}
+
+	public double getAdjustedPrice() {
+		return adjustedPrice;
+	}
+
+	public void setAdjustedPrice(double adjustedPrice) {
+		this.adjustedPrice = adjustedPrice;
+	}
+
+}
+
+
+package com.jpm.mp.sales;
+
+/**
+ * Parse the input msg and dIfferentiate the 3 incoming messages and store the details 
+ *
+ */
+public class LineParser {
+	private String productType;
+	private double productCost;
+	private int productQty;
+	private String adjOperator;
+	private double adjProductPrice;
+
+	public LineParser(String line) {
+		this.productType = "";
+		this.productCost = 0.0;
+		this.productQty = 0;
+		this.adjOperator = "";
+		this.adjProductPrice=0.0;
+		parseEachLine(line);
+	}
+
+	public LineParser() {
+		// TODO Auto-generated constructor stub
+	}
+
+	public boolean parseEachLine(String line) {
+
+		if (null == line || line.isEmpty()) {
+			return false;
+		}
+		String[] arr = line.trim().split(" ");
+		String startWord = arr[0];
+		if (startWord.matches("Add|Subtract|Multiply")) {
+			return parseSaleAdj3rdLine(arr);
+		} else if (arr.length == 7) {
+			return parse2ndLine(arr);
+		} else if (arr.length == 3) {
+			return parseProductType1stLine(arr);
+		} else {
+			System.out.println("Invalid sale notification recieved and the notification is "+ line);
+		}
+		return true;
+	}
+
+	private boolean parseProductType1stLine(String[] lineArr) {
+		productType = lineArr[0];
+		productCost = parsePrice(lineArr[2]);
+		productQty = 0; 
+		return true;
+	}
+
+	private boolean parse2ndLine(String[] lineArr) {
+		productType = lineArr[3];
+		productCost = parsePrice(lineArr[5]);
+		productQty = Integer.parseInt(lineArr[0]);
+		return true;
+	}
+
+	private boolean parseSaleAdj3rdLine(String[] lineArr) {
+		if (lineArr.length != 3)
+			return false;
+		adjOperator = lineArr[0];
+		productType = lineArr[2];
+		productQty = 0;
+		adjProductPrice = parsePrice(lineArr[1]);
+		return true;
+	}
+
+
+	public double parsePrice(String pricewithp) {
+		double price = Double.parseDouble(pricewithp.replace("p", ""));
+		return price;
+	}
+
+	public String getProductType() {
+		return productType;
+	}
+
+	public double getProductPrice() {
+		return productCost;
+	}
+
+	public String getOperatorType() {
+		return adjOperator;
+	}
+
+	public int getProductQuantity() {
+		return productQty;
+	}
+
+	public double getAdjProductPrice() {
+		return adjProductPrice;
+	}
+
+
+}
+
+
+package com.jpm.mp.sales;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+
+
+/**
+ * Logs the output
+ *
+ */
+public class DisplaySaleData {
+
+	private HashMap<String, Product> lineItems = new HashMap<String, Product>();
+
+	private double totalSalesValue;
+
+	private ArrayList<String> salesMsgList;
+
+	private ArrayList<String> adjustmentReports;
+
+	public DisplaySaleData() {
+		this.salesMsgList = new ArrayList<String>();
+		this.adjustmentReports = new ArrayList<String>();
+		this.totalSalesValue = 0.0;
+	}
+
+	//If product is not present in map it creates a new object else retrieves the existing object
+	public Product getProduct(String type) {
+		return lineItems.getOrDefault(type, new Product(type));
+	}
+
+	public void updateProduct(Product product) {
+		lineItems.put(product.getProductType(), product);
+	}
+
+	public ArrayList<String> getNormalReports() {
+		return salesMsgList;
+	}
+
+	public void setNormalReports(String normalReport) {
+		this.salesMsgList.add(normalReport);
+	}
+
+	public ArrayList<String> getAdjustmentReports() {
+		return adjustmentReports;
+	}
+
+	public void setAdjustmentReports(String adjustmentReport) {
+		this.adjustmentReports.add(adjustmentReport);
+	}
+
+	public double getTotalSalesValue() {
+		return totalSalesValue;
+	}
+
+
+	public void setTotalSalesValue(double productTotalPrice) {
+		totalSalesValue = productTotalPrice;
+	}
+
+	/*
+	 * Report outputs sales information to system console on every 10th report
+	 * iteration using modulo. Displays in a table formatted structure and stops
+	 * execution of the application after 50th message iteration.
+	 */
+	public void buildReport() {
+
+		if (null != salesMsgList && (salesMsgList.size() % 10) == 0) {
+			setTotalSalesValue(0.0);
+			System.out.println();
+			System.out.println("Generating the Sale report for 10 transactions");
+			System.out.println("|Product type        |Quantity   |Value      |");
+			System.out.println("------------------------------------------------");
+			lineItems.forEach((k, v) -> formatReports(k, v));
+			System.out.println("------------------------------------------------");
+			System.out.println("Completed 10 Transctions List");
+		}
+
+		if ((salesMsgList.size() % 50) == 0 && salesMsgList.size() != 0) {
+			System.out.println(
+					"Application reached 50 messages and cannot process further. The following are the adjustment made in price;\n");
+
+			getAdjustmentReports().forEach(System.out::println);
+			System.exit(1);
+		}
+	}
+
+	public void formatReports(String type, Product product) {
+		String lineItem = String.format("|%-18s|%-11d|%-11.2f|", product.getProductType(), product.getTotalQuantity(),
+				product.getTotalPrice());
+		System.out.println(lineItem);
+	}
+}
+
+
+package com.jpm.mp.sales;
+
+/**
+ * Performs Operations on price based on the input
+ *
+ */
+public class AdjustPrice {
+
+	private double adjustedPrice;
+
+	private Product product;
+
+	public AdjustPrice(Product product) {
+		this.product = product;
+		this.adjustedPrice = 0.0;
+	}
+
+	public double getAdjustedPrice() {
+		
+		if(product.getAdjustmentOperator().equalsIgnoreCase("add")){
+			addPrice();
+		}else if (product.getAdjustmentOperator().equalsIgnoreCase("subtract")){
+			subtractPrice();
+		}else if (product.getAdjustmentOperator().equalsIgnoreCase("multiply")){
+			multiplyPrice();
+		}
+		return adjustedPrice;
+	}
+
+	public void addPrice() {
+		this.adjustedPrice = this.product.getTotalQuantity()*(this.product.getProductPrice()+this.product.getAdjustedPrice());
+	}
+
+	public void subtractPrice() {
+		this.adjustedPrice = this.product.getTotalQuantity()*(this.product.getProductPrice()-this.product.getAdjustedPrice());
+	}
+
+	public void multiplyPrice() {
+		this.adjustedPrice = this.product.getTotalQuantity()*(this.product.getProductPrice()*this.product.getAdjustedPrice());
+	}
+
+	public String prepFinalReport() {
+		String adjReport = this.product.getAdjustmentOperator()+" "+this.product.getAdjustedPrice()
+							+ "p to "+this.product.getTotalQuantity()+" "+this.product.getProductType()
+							+" and price adjusted from "+this.product.getTotalPrice()+"p to "+this.adjustedPrice+"p";
+		return adjReport;
+	}
+
+}
+
+
+package com.jpm.mp.sales.test;
+
+import java.io.IOException;
+
+import org.junit.Test;
+
+import com.jpm.mp.sales.LineParser;
+import com.jpm.mp.sales.SalesMsgProcessor;
+
+import junit.framework.Assert;
+
+public class TestSalesRecords {
+	
+	@Test
+	public void readSalesMessage() throws IOException{
+		SalesMsgProcessor salesMsgProcessor = new SalesMsgProcessor();
+		salesMsgProcessor.processNotifications("salesInput.txt");
+	}
+	@Test(expected = NullPointerException.class)
+	public void invalidFilName() throws IOException{
+		SalesMsgProcessor salesMsgProcessor = new SalesMsgProcessor();
+		salesMsgProcessor.processNotifications("Input.txt");
+	}
+	@Test(expected = NullPointerException.class)
+	public void nullInput() throws IOException{
+		SalesMsgProcessor salesMsgProcessor = new SalesMsgProcessor();
+		salesMsgProcessor.processNotifications(null);
+	}
+	
+	@Test
+	public void emptyNotificationRecieved() throws IOException{
+		LineParser lineParser ; 
+		Assert.assertFalse(new LineParser().parseEachLine(""));
+	}
+	
+	@Test
+	public void nullNotificationRecieved() throws IOException{
+		LineParser lineParser ; 
+		Assert.assertFalse(new LineParser().parseEachLine(null));
+
+	}
+
+}
+
+
+
+pom.xml
+
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.jpm.mp</groupId>
+  <artifactId>SalesMessageProcessor</artifactId>
+  <version>0.0.1-SNAPSHOT</version>
+  <dependencies>
+  <!-- https://mvnrepository.com/artifact/junit/junit -->
+	<dependency>
+    <groupId>junit</groupId>
+    <artifactId>junit</artifactId>
+    <version>4.12</version>
+    <scope>test</scope>
+	</dependency>
+  
+  </dependencies>
+</project>
+
+
+
+
+salesInput.txt
+
+apples at 10p
+20 sales of apples at 10p each
+Add 20p apples
+bananas at 10p
+20 sales of bananas at 10p each
+Subtract 5p bananas
+cherries at 10p
+20 sales of cherries at 10p each
+Multiply 2p cherries
+oranges at 10p
+20 sales of oranges at 10p each
+Add 5p oranges
+Multiply 1p oranges
+strawberries at 5p
+15 sales of strawberries at 5p each
+Add 2p strawberries
+grapes at 10p
+20 sales of grapes at 10p each
+Add 20p grapes
+plums at 10p
+20 sales of plums at 10p each
+Multiply 20p plums
+blueberries at 10p
+20 sales of blueberries at 10p each
+Add 20p blueberries
+blackberries at 10p
+20 sales of blackberries at 10p each
+Subtract 5p blackberries
+cranberries at 10p
+20 sales of cranberries at 10p each
+Multiply 20p cranberries
+pears at 10p
+20 sales of pears at 10p each
+Add 20p pears
+guavas at 10p
+20 sales of guavas at 10p each
+Add 20p guavas
+jamuns at 10p
+20 sales of jamuns at 10p each
+Subtract 5p jamuns
+pomos at 10p
+20 sales of pomos at 10p each
+Multiply 3p pomos
+carrots at 10p
+20 sales of carrots at 10p each
+Add 14p carrots
+flowers at 10p
+20 sales of flowers at 10p each
+Multiply 8p flowers
+fruits at 10p
+20 sales of fruits at 10p each
+Subtract 20p fruits
